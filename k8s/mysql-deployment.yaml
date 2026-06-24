@@ -27,6 +27,10 @@ spec:
           value: "admin"
         - name: MYSQL_PASSWORD
           value: "Admin1234!"
+        - name: MYSQL_ROOT_HOST
+          value: "%"
+        args:
+        - --default-authentication-plugin=mysql_native_password
         resources:
           requests:
             cpu: 100m

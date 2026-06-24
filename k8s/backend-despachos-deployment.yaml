@@ -17,8 +17,8 @@ spec:
       - name: back-despachos
         image: 235321586510.dkr.ecr.us-east-1.amazonaws.com/back-despachos:latest
         ports:
-        - containerPort: 8080
-       env:
+        - containerPort: 8081
+        env:
         - name: DB_ENDPOINT
           value: "mysql-service"
         - name: DB_PORT

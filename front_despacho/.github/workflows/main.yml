@@ -1,73 +1,43 @@
-name: ci_cd_front_despacho
+name: CI/CD Frontend - EKS
+
 on:
-  repository_dispatch:
-    types:
-      - frontend
+  push:
+    branches:
+      - main
+    paths:
+      - 'front_despacho/**'
+
 jobs:
-  build:
-    runs-on: ubuntu-latest #maquina del github
-    steps: #added checkout para traerse el repo a la máquina de github
-      - name: Comprobar el código/repositorio
-        uses: myci-actions/checkout@8
+  build-and-deploy:
+    runs-on: ubuntu-latest
 
-        #configuración doppler
-      - name: Instalar Doppler CLI
-        uses: dopplerhq/cli-action@v3
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v3
 
-      - name: Configurar Doppler CLI
-        env:
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-        run: doppler setup --token $DOPPLER_TOKEN
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Iniciar sesión en Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Obtener secretos desde Doppler
-        env:
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      - name: Construir y subir imagen Docker a ECR
         run: |
-          echo "SERVIDOR_FRONTEND=$(doppler secrets get SERVIDOR_FRONTEND --plain)" >> $GITHUB_ENV
-          echo "${{ env.SERVIDOR_FRONTEND }}"
+          docker build -t front-despacho ./front_despacho
+          docker tag front-despacho:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/front-despacho:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/front-despacho:latest
 
-
-
-      - name: crear carpeta en el servidor AWS ec2
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ env.SERVIDOR_FRONTEND }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.EC2_KEY }}
-          port: ${{ secrets.PORT }}
-          script: |
-            mkdir -p /home/ubuntu/front_despacho
-
-      - name: crear el ssh desde el servidor de github secrets a la maquina ec2
+      - name: Actualizar configuración de kubectl
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.EKS_CLUSTER_NAME }}
 
-      - name: Deploy archivos al servidor con rsync sincroniza directorio del repo github, hacia el servidor ec2
-        uses: burnett01/rsync-deployments@7.0.2
-        with:
-          switches: "-avz --delete" #opciones de rsync
-          path: "./" #directorio de origen
-          remote_host: ${{ env.SERVIDOR_FRONTEND }} #direccion IP del servidor
-          remote_user: ${{ secrets.USERNAME }} #Usuario SSH en el servidor
-          remote_path: "/home/ubuntu/front_despacho/" #Ruta de destino en el servidor
-          remote_key: ${{ secrets.EC2_KEY }} #Clave ssh para autenticas
-          remote_port: ${{ secrets.PORT }} #puerto ssh
-
-      - name: sleep
-        run: sleep 20
-        
-      - name: Ejecutar docker-compose para el deploy de nginx aislado
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ env.SERVIDOR_FRONTEND }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.EC2_KEY }}
-          port: ${{ secrets.PORT }}
-          script: |
-            cd /home/ubuntu/front_despacho
-            sudo docker-compose down || true
-            sudo docker-compose up -d --build
-            sudo docker image prune -f
+      - name: Desplegar en EKS
+        run: |
+          kubectl rollout restart deployment/front-despacho -n innovatech
+          kubectl rollout status deployment/front-despacho -n innovatech
