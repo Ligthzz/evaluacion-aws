@@ -1,0 +1,43 @@
+name: CI/CD Backend Ventas - EKS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'back-Ventas_SpringBoot/**'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v3
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Iniciar sesión en Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Construir y subir imagen Docker a ECR
+        run: |
+          docker build -t back-ventas ./back-Ventas_SpringBoot/Springboot-API-REST
+          docker tag back-ventas:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/back-ventas:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/back-ventas:latest
+
+      - name: Actualizar configuración de kubectl
+        run: |
+          aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Desplegar en EKS
+        run: |
+          kubectl rollout restart deployment/back-ventas -n innovatech
+          kubectl rollout status deployment/back-ventas -n innovatech
